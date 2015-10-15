@@ -38,13 +38,13 @@ CONTROLSTATE g_ControlState = ROTATE;
 /* state of the world */
 /* Arbitrary good initial values*/
 float g_vLandRotate[3] = { 0.0, 0.0, 0.0 };
-float g_vLandTranslate[3] = { -0.45, -0.45, 0.0 };
+float g_vLandTranslate[3] = { 0.0, 0.0, 0.0 };
 float g_vLandScale[3] = { 1.0, 1.0, 1.0 };
 
 /* Recording control*/
 bool isRecording = false;
 int nPictures = 0;
-char fileName[] = "CSCI420-HeightFields";
+char fileName[] = "CSCI420-RollerCoaster";
 
 /* represents one control point along the spline */
 struct point {
@@ -65,23 +65,69 @@ struct spline *g_Splines;
 /* total number of splines */
 int g_iNumOfSplines;
 
+/* Spline infos*/
+point * splinePoints;
+int numOfSplinePoints;
+const int UDIVISOR = 1000;
+
+GLuint texture[6];
+/*Skybox infos*/
+char * skyBoxTopTextName = "Textures/skyTop.jpg";
+char * skyBoxRightTextName = "Textures/skyRight.jpg";
+char * skyBoxLeftTextName = "Textures/skyLeft.jpg";
+char * skyBoxFrontTextName = "Textures/skyFront.jpg";
+char * skyBoxRearTextName = "Textures/skyRear.jpg";
+
+/*Ground infos*/
+char * groundTexName = "Textures/ground.jpg";
+
 
 /*Splines functions*/
 
 /*Implements the formula to calculate the spline point
 Reference: http://www.mvps.org/directx/articles/catmull/ */
-point splineCalc(point p1, point p2, point p3, point p4, double u){
-	point out;
-	out.x = 0.5 * splineAxisPoint(p1.x, p2.x, p3.x, p4.x, u);
-	out.y = 0.5 * splineAxisPoint(p1.y, p2.x, p3.y, p4.y, u);
-	out.z = 0.5 * splineAxisPoint(p1.z, p2.z, p3.z, p4.z, u);
-	
-}
 double splineAxisPoint(double v1, double v2, double v3, double v4, double u){
 	return (2 * v2) + (-v1 + v3) * u + (2 * v1 - 5 * v2 + 4 * v3 - v4) * pow(u, 2) + (-v1 + 3 * v2 - 3 * v3 + v4) * pow(u, 3);
 }
+point splineCalc(point p1, point p2, point p3, point p4, double u){
+	point out;
+	out.x = 0.5 * splineAxisPoint(p1.x, p2.x, p3.x, p4.x, u);
+	//Inverted for good purpose. :)
+	out.z = 0.5 * splineAxisPoint(p1.y, p2.y, p3.y, p4.y, u);
+	out.y = 0.5 * splineAxisPoint(p1.z, p2.z, p3.z, p4.z, u);
+	return out;
+}
+
+/*Calculate all spline information*/
+void generateSplines(spline * splines){
+	int numOfControlPoints = splines[0].numControlPoints;
+	numOfSplinePoints = numOfControlPoints * UDIVISOR;
+	double uInc = 1.0 / UDIVISOR;
+
+	/*Initialize arrays*/
+	splinePoints = new point[numOfSplinePoints];
 
 
+	/*Brute force calculation*/
+	int splineIndex = 0;
+	for (int i = 0; i < numOfControlPoints - 3; i++){
+		for (double u = 0.0f; u < 1.0; u += uInc){
+			point p0, p1, p2, p3;
+			p0 = splines[0].points[i];
+			p1 = splines[0].points[i + 1];
+			p2 = splines[0].points[i + 2];
+			p3 = splines[0].points[i + 3];
+
+			//calc point
+			point splinePoint = splineCalc(p0, p1, p2, p3, u);
+
+			splinePoints[splineIndex] = splinePoint;
+			splineIndex++;
+		}
+	}
+
+	numOfSplinePoints = splineIndex;
+}
 
 int loadSplines(char *argv) {
 	char *cName = (char *)malloc(128 * sizeof(char));
@@ -133,7 +179,6 @@ int loadSplines(char *argv) {
 	return 0;
 }
 
-
 /*Recording stuff*/
 /* Write a screenshot to the specified filename */
 void saveScreenshot(char *filename)
@@ -162,13 +207,151 @@ void saveScreenshot(char *filename)
 	pic_free(in);
 }
 
-/*OPENGL Callbacks*/
+/*Drawing Functions*/
+void drawGround(){
+	glColor3f(1.0, 1.0, 1.0);
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, texture[0]);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 100.0f); glVertex3f(100.0f, -2.0f, 100.0f);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(100.0f, -2.0f, -100.0f);
+	glTexCoord2f(100.0f, 100.0f); glVertex3f(-100.0f, -2.0f, -100.0f);
+	glTexCoord2f(100.0f, 0.0f); glVertex3f(-100.0f, -2.0f, 100.0f);
+	glEnd();
+	glDisable(GL_TEXTURE_2D);
+}
+
+void drawSkybox(){
+	glColor3f(1.0, 1.0, 1.0);
+
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, texture[1]);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	//Top
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 1.0f); glVertex3f(-100.0f, 98.0f, 100.0f);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(-100.0f, 98.0f, -100.0f);
+	glTexCoord2f(1.0f, 0.0f); glVertex3f(100.0f, 98.0f, -100.0f);
+	glTexCoord2f(1.0f, 1.0f); glVertex3f(100.0f, 98.0f, 100.0f);
+	glEnd();
+	glDisable(GL_TEXTURE_2D);
+
+
+	//Right
+
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, texture[2]);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glBegin(GL_QUADS);
+	glTexCoord2f(1.0f, 1.0f); glVertex3f(100.0f, -2.0f, 100.0f);
+	glTexCoord2f(0.0f, 1.0f); glVertex3f(-100.0f, -2.0f, 100.0f);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(-100.0f, 98.0f, 100.0f);
+	glTexCoord2f(1.0f, 0.0f);  glVertex3f(100.0f, 98.0f, 100.0f);
+	
+	glEnd();
+
+	glDisable(GL_TEXTURE_2D);
+
+	//Left
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, texture[3]);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 1.0f); glVertex3f(100.0f, -2.0f, -100.0f);
+	glTexCoord2f(1.0f, 1.0f); glVertex3f(-100.0f, -2.0f, -100.0f);
+	glTexCoord2f(1.0f, 0.0f); glVertex3f(-100.0f, 98.0f, -100.0f);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(100.0f, 98.0f, -100.0f);
+	glEnd();
+
+	glDisable(GL_TEXTURE_2D);
+
+	//Front
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, texture[4]);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glBegin(GL_QUADS);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(100.0f, 98.0f, 100.0f);
+	glTexCoord2f(1.0f, 0.0f); glVertex3f(100.0f, 98.0f, -100.0f);
+	glTexCoord2f(1.0f, 1.0f); glVertex3f(100.0f, -2.0f, -100.0f);
+	glTexCoord2f(0.0f, 1.0f); glVertex3f(100.0f, -2.0f, 100.0f);
+	glEnd();
+
+	glDisable(GL_TEXTURE_2D);
+
+	//Rear
+	glEnable(GL_TEXTURE_2D);
+	glBindTexture(GL_TEXTURE_2D, texture[5]);
+	glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+	glBegin(GL_QUADS);
+	glTexCoord2f(1.0f, 0.0f); glVertex3f(-100.0f, 98.0f, 100.0f);
+	glTexCoord2f(0.0f, 0.0f); glVertex3f(-100.0f, 98.0f, -100.0f);
+	glTexCoord2f(0.0f, 1.0f); glVertex3f(-100.0f, -2.0f, -100.0f);
+	glTexCoord2f(1.0f, 1.0f); glVertex3f(-100.0f, -2.0f, 100.0f);
+	
+	glEnd();
+
+	glDisable(GL_TEXTURE_2D);
+}
+
+void drawSpline(){
+
+	//*Draw Lines
+	glColor3f(1.0, 0.5, 0.5);
+	glEnable(GL_LINE_SMOOTH);
+	glBegin(GL_LINE_STRIP);
+	glLineWidth(10);
+	for (int i = 0; i < numOfSplinePoints; i++){
+		glVertex3f(splinePoints[i].x, splinePoints[i].y, splinePoints[i].z);
+	}
+	glEnd();
+}
+
+//Texture loading
+void texload(int i, char * filename){
+	Pic * img;
+	img = jpeg_read(filename, NULL);
+	glBindTexture(GL_TEXTURE_2D, texture[i]);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, img->nx, img->ny, 0, GL_RGB, GL_UNSIGNED_BYTE, &img->pix[0]);
+	pic_free(img);
+}
+
+
+/*OPENGL Callbacks*/
 void display(){
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
 
-	//TODO: the magic
+	/* Transform to the current world state */
+	glTranslatef(g_vLandTranslate[0], g_vLandTranslate[1], g_vLandTranslate[2]);
+	glRotatef(g_vLandRotate[0], 1.0, 0.0, 0.0);
+	glRotatef(g_vLandRotate[1], 0.0, 1.0, 0.0);
+	glRotatef(g_vLandRotate[2], 0.0, 0.0, 1.0);
+	glScalef(g_vLandScale[0], g_vLandScale[1], g_vLandScale[2]);
+
+	/*Draw calls*/
+	drawSkybox();
+	drawGround();
+	drawSpline();
 
 	glutSwapBuffers();
 }
@@ -286,10 +469,23 @@ void mousebutton(int button, int state, int x, int y)
 
 void myinit()
 {
+	/*Splines init*/
+	generateSplines(g_Splines);
+
+	/*Texture loading*/
+	glGenTextures(6, texture);
+	texload(0, groundTexName);
+	texload(1, skyBoxTopTextName);
+	texload(2, skyBoxRightTextName);
+	texload(3, skyBoxLeftTextName);
+	texload(4, skyBoxFrontTextName);
+	texload(5, skyBoxRearTextName);
+
 	/* setup gl view here */
 	glClearColor(0.0, 0.0, 0.0, 0.0);
 
 	glEnable(GL_DEPTH_TEST);
+
 }
 
 /* set projection to aspect ratio of window */
