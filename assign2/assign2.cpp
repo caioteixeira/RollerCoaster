@@ -44,6 +44,8 @@ float g_vLandScale[3] = { 1.0, 1.0, 1.0 };
 /* Recording control*/
 bool isRecording = false;
 int nPictures = 0;
+int frameCounter = 0;
+int framesPerPhoto = 10;
 char fileName[] = "CSCI420-RollerCoaster";
 
 /* represents one control point along the spline */
@@ -67,8 +69,13 @@ int g_iNumOfSplines;
 
 /* Spline infos*/
 point * splinePoints;
+point * splineTangents;
+point * splineNormals;
+point * splineBiNormals;
 int numOfSplinePoints;
-const int UDIVISOR = 1000;
+const int UDIVISOR = 700;
+int actualNTBCoordinate = 0;
+const double SECTION_GAP = 0.5;
 
 GLuint texture[6];
 /*Skybox infos*/
@@ -81,6 +88,8 @@ char * skyBoxRearTextName = "Textures/skyRear.jpg";
 /*Ground infos*/
 char * groundTexName = "Textures/ground.jpg";
 
+/*Disply lists IDs*/
+GLuint trackID;
 
 /*Splines functions*/
 
@@ -88,6 +97,9 @@ char * groundTexName = "Textures/ground.jpg";
 Reference: http://www.mvps.org/directx/articles/catmull/ */
 double splineAxisPoint(double v1, double v2, double v3, double v4, double u){
 	return (2 * v2) + (-v1 + v3) * u + (2 * v1 - 5 * v2 + 4 * v3 - v4) * pow(u, 2) + (-v1 + 3 * v2 - 3 * v3 + v4) * pow(u, 3);
+}
+double splineAxisTangent(double v1, double v2, double v3, double v4, double u){
+	return  (-v1 + v3) + (2 * v1 - 5 * v2 + 4 * v3 - v4) * (2 * u) + (-v1 + 3 * v2 - 3 * v3 + v4) * (3 * pow(u, 2));
 }
 point splineCalc(point p1, point p2, point p3, point p4, double u){
 	point out;
@@ -97,6 +109,48 @@ point splineCalc(point p1, point p2, point p3, point p4, double u){
 	out.y = 0.5 * splineAxisPoint(p1.z, p2.z, p3.z, p4.z, u);
 	return out;
 }
+point splineTangentCalc(point p1, point p2, point p3, point p4, double u){
+	point out;
+	out.x = 0.5 * splineAxisTangent(p1.x, p2.x, p3.x, p4.x, u);
+	//Inverted for good purpose. :)
+	out.z = 0.5 * splineAxisTangent(p1.y, p2.y, p3.y, p4.y, u);
+	out.y = 0.5 * splineAxisTangent(p1.z, p2.z, p3.z, p4.z, u);
+	return out;
+}
+
+/*Vector math helper functions*/
+point normalize(point p){
+	double length = sqrt(pow(p.x, 2) + pow(p.y, 2) + pow(p.z, 2));
+	point r;
+	r.x = p.x / length;
+	r.y = p.y / length;
+	r.z = p.z / length;
+	return r;
+}
+point crossProduct(point a, point b){
+	point r;
+	r.x = a.y * b.z - a.z * b.y;
+	r.y = a.z * b.x - a.x * b.z;
+	r.z = a.x * b.y - a.y * b.x;
+	return r;
+}
+
+point addVectors(point a, point b){
+	point r;
+	r.x = a.x + b.x;
+	r.y = a.y + b.y;
+	r.z = a.z + b.z;
+	return r;
+}
+
+point scalarMultiply(double s, point a){
+	point r;
+	r.x = a.x * s;
+	r.y = a.y * s;
+	r.z = a.z * s;
+	return r;
+}
+
 
 /*Calculate all spline information*/
 void generateSplines(spline * splines){
@@ -106,7 +160,9 @@ void generateSplines(spline * splines){
 
 	/*Initialize arrays*/
 	splinePoints = new point[numOfSplinePoints];
-
+	splineTangents = new point[numOfSplinePoints];
+	splineNormals = new point[numOfSplinePoints];
+	splineBiNormals = new point[numOfSplinePoints];
 
 	/*Brute force calculation*/
 	int splineIndex = 0;
@@ -120,8 +176,29 @@ void generateSplines(spline * splines){
 
 			//calc point
 			point splinePoint = splineCalc(p0, p1, p2, p3, u);
+			point splineTangent = splineTangentCalc(p0, p1, p2, p3, u);
+			splineTangents[splineIndex] = splineTangent;
+			splineTangent = normalize(splineTangent);
+			
+			point splineNormal;
+			point splineBinormal;
+			/*Calculate normal and binormal*/
+			if (splineIndex == 0){
+				point V0;
+				V0.x = 0.0; V0.y = 0.0; V0.z = -1.0;
+				splineNormal = normalize(crossProduct(splineTangent, V0));
+				splineBinormal = normalize(crossProduct(splineTangent, splineNormal));
+			}
+			else {
+				point previousBinormal = splineBiNormals[splineIndex - 1];
+				splineNormal = normalize(crossProduct(previousBinormal, splineTangent));
+				splineBinormal = normalize(crossProduct(splineTangent, splineNormal));
+			}
 
+			/*Update the arrays*/
 			splinePoints[splineIndex] = splinePoint;
+			splineNormals[splineIndex] = splineNormal;
+			splineBiNormals[splineIndex] = splineBinormal;
 			splineIndex++;
 		}
 	}
@@ -160,7 +237,6 @@ int loadSplines(char *argv) {
 
 		/* gets length for spline file */
 		fscanf(fileSpline, "%d %d", &iLength, &iType);
-
 		/* allocate memory for all the points */
 		g_Splines[j].points = (struct point *)malloc(iLength * sizeof(struct point));
 		g_Splines[j].numControlPoints = iLength;
@@ -313,17 +389,120 @@ void drawSkybox(){
 	glDisable(GL_TEXTURE_2D);
 }
 
+void drawRailSection(point v0, point v1, point v2, point v3, point v4, point v5, point v6, point v7){
+	//Top
+	glBegin(GL_QUADS);
+	glVertex3f(v1.x, v1.y, v1.z);
+	glVertex3f(v2.x, v2.y, v2.z);
+	glVertex3f(v6.x, v6.y, v6.z);
+	glVertex3f(v5.x, v5.y, v5.z);
+	glEnd();
+
+	//Bottom
+	glBegin(GL_QUADS);
+	glVertex3f(v0.x, v0.y, v0.z);
+	glVertex3f(v3.x, v3.y, v3.z);
+	glVertex3f(v7.x, v7.y, v7.z);
+	glVertex3f(v4.x, v4.y, v4.z);
+	glEnd();
+
+	//Left 
+	glBegin(GL_QUADS);
+	glVertex3f(v2.x, v2.y, v2.z);
+	glVertex3f(v6.x, v6.y, v6.z);
+	glVertex3f(v7.x, v7.y, v7.z);
+	glVertex3f(v3.x, v3.y, v3.z);
+	glEnd();
+
+	//Right
+	glBegin(GL_QUADS);
+	glVertex3f(v1.x, v1.y, v1.z);
+	glVertex3f(v5.x, v5.y, v5.z);
+	glVertex3f(v4.x, v4.y, v4.z);
+	glVertex3f(v0.x, v0.y, v0.z);
+	glEnd();
+}
+
+void drawCrossSection(point v0, point tangent, point normal, point binormal, double sectionGap, double size = 0.03){
+	glColor3f(0.542, 0.30, 0.07);
+
+	point v3 = addVectors(v0, scalarMultiply(sectionGap * 0.9, binormal));
+	point v1 = addVectors(v0, scalarMultiply(size, normal));
+	point v2 = addVectors(v3, scalarMultiply(size, normal));
+
+	//For performance, I only render the front quad
+	//Front
+	glBegin(GL_QUADS);
+	glVertex3f(v1.x, v1.y, v1.z);
+	glVertex3f(v2.x, v2.y, v2.z);
+	glVertex3f(v3.x, v3.y, v3.z);
+	glVertex3f(v0.x, v0.y, v0.z);
+	glEnd();
+}
+
+/*Given a spline index and a scale value, draw the rail bisection*/
+void drawBisection(int splineIndex, double scale, double sectionInterval = 0.5, int uInterval = 1, bool crossSection = false){
+	glColor3f(0.5, 0.5, 0.5);
+
+	point tangent = normalize(splineTangents[splineIndex]);
+	point points1[4];
+	points1[2] = splinePoints[splineIndex];
+	points1[1] = addVectors(splinePoints[splineIndex], scalarMultiply(scale, splineBiNormals[splineIndex]));
+	points1[0] = addVectors(points1[1], scalarMultiply(-1 * scale, splineNormals[splineIndex]));
+	points1[3] = addVectors(splinePoints[splineIndex], scalarMultiply(-scale, splineNormals[splineIndex])); 
+
+	tangent = normalize(splineTangents[splineIndex + uInterval]);
+	point points2[4];
+	points2[2] = splinePoints[splineIndex + uInterval];
+	points2[1] = addVectors(splinePoints[splineIndex + uInterval], scalarMultiply(scale, splineBiNormals[splineIndex + uInterval]));
+	points2[0] = addVectors(points2[1], scalarMultiply(-1 * scale, splineNormals[splineIndex + uInterval]));
+	points2[3] = addVectors(splinePoints[splineIndex + uInterval], scalarMultiply(-scale, splineNormals[splineIndex + uInterval]));
+
+	//Draw left section
+	drawRailSection(points1[0], points1[1], points1[2], points1[3], points2[0], points2[1], points2[2], points2[3]);
+
+	//DrawCross section
+	if (crossSection){
+		drawCrossSection(points1[0], tangent, splineNormals[splineIndex], splineBiNormals[splineIndex], sectionInterval);
+	}
+
+
+	glColor3f(0.5, 0.5, 0.5);
+	for (point & v : points1){
+		v = addVectors(v, scalarMultiply(sectionInterval, splineBiNormals[splineIndex]));
+	}
+	for (point & v : points2){
+		v = addVectors(v, scalarMultiply(sectionInterval, splineBiNormals[splineIndex + uInterval]));
+	}
+
+	//Draw right section
+	drawRailSection(points1[0], points1[1], points1[2], points1[3], points2[0], points2[1], points2[2], points2[3]);
+}
+
 void drawSpline(){
 
 	//*Draw Lines
-	glColor3f(1.0, 0.5, 0.5);
-	glEnable(GL_LINE_SMOOTH);
-	glBegin(GL_LINE_STRIP);
-	glLineWidth(10);
-	for (int i = 0; i < numOfSplinePoints; i++){
-		glVertex3f(splinePoints[i].x, splinePoints[i].y, splinePoints[i].z);
+
+	trackID = glGenLists(1);
+	glNewList(trackID, GL_COMPILE);
+	for (int i = 0; i < numOfSplinePoints-10; i+=10){
+		
+		double s = 0.07;
+
+		drawBisection(i, s, SECTION_GAP, 10, i%100 == 0);
 	}
-	glEnd();
+	glEndList();
+	
+}
+
+/*Camera look at helper function*/
+void NTBlookAt(point splinePoint, point tangent, point normal, point binormal){
+	point eye = addVectors(splinePoint,  scalarMultiply(0.2, normal));
+	eye = addVectors(eye, scalarMultiply(SECTION_GAP / 2, binormal));
+	point center = addVectors(eye, tangent);
+	point up = normal;
+	
+	gluLookAt(eye.x, eye.y, eye.z, center.x, center.y, center.z, up.x, up.y, up.z);
 }
 
 //Texture loading
@@ -341,17 +520,24 @@ void display(){
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
 
-	/* Transform to the current world state */
+	/*Update the camera*/
+	if (actualNTBCoordinate >= numOfSplinePoints)
+		actualNTBCoordinate = 0;
+	NTBlookAt(splinePoints[actualNTBCoordinate], splineTangents[actualNTBCoordinate], splineNormals[actualNTBCoordinate], splineBiNormals[actualNTBCoordinate]);
+	actualNTBCoordinate++;
+
+	/*Transform to the current world state */
 	glTranslatef(g_vLandTranslate[0], g_vLandTranslate[1], g_vLandTranslate[2]);
 	glRotatef(g_vLandRotate[0], 1.0, 0.0, 0.0);
 	glRotatef(g_vLandRotate[1], 0.0, 1.0, 0.0);
 	glRotatef(g_vLandRotate[2], 0.0, 0.0, 1.0);
-	glScalef(g_vLandScale[0], g_vLandScale[1], g_vLandScale[2]);
+	glScalef(g_vLandScale[0], g_vLandScale[1], g_vLandScale[2]); 
 
 	/*Draw calls*/
 	drawSkybox();
 	drawGround();
-	drawSpline();
+	//drawSpline();
+	glCallList(trackID);
 
 	glutSwapBuffers();
 }
@@ -359,13 +545,15 @@ void display(){
 void doIdle()
 {
 	/* recording stuff */
-	if (isRecording)
+	if (isRecording && frameCounter % framesPerPhoto == 0)
 	{
 		char myFilenm[100];
 		sprintf_s(myFilenm, "anim.%04d.jpg", nPictures);
 		saveScreenshot(myFilenm);
 		nPictures++;
 	}
+
+	frameCounter++;
 
 	/* make the screen update */
 	glutPostRedisplay();
@@ -466,6 +654,14 @@ void mousebutton(int button, int state, int x, int y)
 	g_vMousePos[1] = y;
 }
 
+/*Keyboard callback*/
+void keyboard(unsigned char key, int x, int y)
+{
+	// screenshot
+	if (key == 'r'){
+		isRecording = !isRecording;
+	}
+}
 
 void myinit()
 {
@@ -484,6 +680,9 @@ void myinit()
 	/* setup gl view here */
 	glClearColor(0.0, 0.0, 0.0, 0.0);
 
+	/*Set display lists*/
+	drawSpline();
+
 	glEnable(GL_DEPTH_TEST);
 
 }
@@ -496,6 +695,7 @@ void reshape(int w, int h){
 	glLoadIdentity();
 	gluPerspective(FOVY, aspect, 0.01, 1000.0);
 	glMatrixMode(GL_MODELVIEW);
+	glLoadIdentity();
 }
 
 int _tmain(int argc, _TCHAR* argv[])
@@ -525,7 +725,7 @@ int _tmain(int argc, _TCHAR* argv[])
 	//Window creation
 	glutInitWindowSize(WIDTH, HEIGHT);
 	glutInitWindowPosition(0, 0);
-	glutCreateWindow("Height Field");
+	glutCreateWindow(fileName);
 
 	/* tells glut to use a particular display function to redraw */
 	glutDisplayFunc(display);
@@ -547,6 +747,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	glutMouseFunc(mousebutton);
 	/* callback for reshape*/
 	glutReshapeFunc(reshape);
+	/* callback for keyboard changes*/
+	glutKeyboardFunc(keyboard);
 
 	/* do initialization */
 	myinit();
