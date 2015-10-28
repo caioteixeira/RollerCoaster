@@ -480,19 +480,24 @@ void drawBisection(int splineIndex, double scale, double sectionInterval = 0.5, 
 }
 
 void drawSpline(){
-
-	//*Draw Lines
-
 	trackID = glGenLists(1);
 	glNewList(trackID, GL_COMPILE);
+
+	//Light stuff
+	GLfloat mat_specular[] = { 1.0, 1.0, 1.0, 1.0 };
+	GLfloat mat_shininess[] = { 50.0 };
+	glMaterialfv(GL_FRONT, GL_SPECULAR, mat_specular);
+	glMaterialfv(GL_FRONT, GL_SHININESS, mat_shininess);
+
+	//*Draw Lines
 	for (int i = 0; i < numOfSplinePoints-10; i+=10){
 		
 		double s = 0.07;
 
 		drawBisection(i, s, SECTION_GAP, 10, i%100 == 0);
 	}
+
 	glEndList();
-	
 }
 
 /*Camera look at helper function*/
@@ -514,6 +519,12 @@ void texload(int i, char * filename){
 	pic_free(img);
 }
 
+/*Set lighting*/
+void initLighting(){
+	GLfloat light_position[] = { 1.0, 1.0, 1.0, 0.0 };
+	glLightfv(GL_LIGHT0, GL_POSITION, light_position);;
+	glShadeModel(GL_SMOOTH);
+}
 
 /*OPENGL Callbacks*/
 void display(){
@@ -548,7 +559,7 @@ void doIdle()
 	if (isRecording && frameCounter % framesPerPhoto == 0)
 	{
 		char myFilenm[100];
-		sprintf_s(myFilenm, "anim.%04d.jpg", nPictures);
+		sprintf_s(myFilenm, "%04d.jpg", nPictures);
 		saveScreenshot(myFilenm);
 		nPictures++;
 	}
