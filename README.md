@@ -1,8 +1,9 @@
 # RollerCoaster
 A RollerCoaster simulation program built with C(with some C++ features) and OpenGL, used a Catmul-Rom Spline to draw the track and orient the camera.
 
+![PrintScreen](https://raw.githubusercontent.com/caioteixeira/RollerCoaster/master/RollerCoaster.JPG?token=AENzdLXMDDL9uMnguh5qhIXlVwpnDTIDks5WOmFjwA%3D%3D)
 
-
+[Click to see a demo video on Youtube :)](https://youtu.be/Pp_YjTthn4M)
 
 ## Arguments
 The program need one argument on command-line, it's a path for a file indicating the path for control point definition files. You can see an example on track.txt.
