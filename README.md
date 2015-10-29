@@ -21,7 +21,7 @@ Before you compile, you must install command-line utilities (make, gcc, etc.).
 On Mac OS X Lion or newer, install XCode from the Mac app store, then go to XCode, 
 and use "Preferences/Download" to install the command line tools. In Mac OS X Snow Leopard or older, 
 you must install Mac OS X Developer Tools from the Mac OS X DVD. 
-The makefile of the starter code assumes that the pic library locates one level above (i.e. if starter code == /Users/tom/code/assign2, then pic library should be in /Users/tom/code/pic). Please compile the pic library before compiling the code. Here is a sequence of commands that get everything compiled:
+The makefile assumes that the pic library locates one level above (i.e. if starter code == /Users/tom/code/assign2, then pic library should be in /Users/tom/code/pic). Please compile the pic library before compiling the code. Here is a sequence of commands that get everything compiled:
 
 	> unzip pic_MacOS.zip
 	> cd pic 
@@ -30,4 +30,4 @@ The makefile of the starter code assumes that the pic library locates one level 
 	> cd ..
 	> cd assign2
 	> make
-	> ./assign2 spiral.jpg
+	> ./assign2 track.txt
